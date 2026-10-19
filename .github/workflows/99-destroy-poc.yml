@@ -37,6 +37,30 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
 
+      - name: Set up Cloud SDK & GKE Auth Plugin
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Pre-Clean GKE LoadBalancers, Gateways & Dynamic Tenants
+        run: |
+          echo "Checking if GKE cluster ${CLUSTER_NAME} exists to release GCP Load Balancers cleanly..."
+          if gcloud container clusters describe "${CLUSTER_NAME}" --region "${REGION}" --project "${PROJECT_ID}" >/dev/null 2>&1; then
+            RUNNER_IP=$(curl -s https://ifconfig.me)
+            gcloud container clusters update "${CLUSTER_NAME}" \
+              --region="${REGION}" \
+              --project="${PROJECT_ID}" \
+              --enable-master-authorized-networks \
+              --master-authorized-networks="${RUNNER_IP}/32" || true
+            gcloud container clusters get-credentials "${CLUSTER_NAME}" --region "${REGION}" --project "${PROJECT_ID}" || true
+            echo "Deleting HTTPRoutes, GCP Native Gateway, and Istio LoadBalancer Service..."
+            kubectl delete httproute --all -A --ignore-not-found=true --timeout=60s || true
+            kubectl delete gateway oda-gcp-native-gateway -n canvas --ignore-not-found=true --timeout=60s || true
+            kubectl delete svc istio-ingress -n istio-ingress --ignore-not-found=true --timeout=60s || true
+            echo "Waiting 60s for GCP L7/L4 Load Balancer controllers to release VPC NEGs & Firewall rules..."
+            sleep 60
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -58,4 +82,18 @@ jobs:
           terraform destroy -auto-approve \
             -var="project_id=${PROJECT_ID}" \
             -var="region=${REGION}" \
-            -var="cluster_name=${CLUSTER_NAME}"
+            -var="cluster_name=${CLUSTER_NAME}" || {
+              echo "Cleaning up any lingering GKE-managed firewall rules or NEGs in oda-canvas-vpc and retrying destroy..."
+              for FW in $(gcloud compute firewall-rules list --project="${PROJECT_ID}" --filter="network:oda-canvas-vpc" --format="value(name)"); do
+                gcloud compute firewall-rules delete "${FW}" --project="${PROJECT_ID}" --quiet || true
+              done
+              for NEG_LINE in $(gcloud compute network-endpoint-groups list --project="${PROJECT_ID}" --filter="network:oda-canvas-vpc" --format="csv[no-heading](name,zone)"); do
+                NEG_NAME=$(echo "${NEG_LINE}" | cut -d',' -f1)
+                NEG_ZONE=$(echo "${NEG_LINE}" | cut -d',' -f2)
+                gcloud compute network-endpoint-groups delete "${NEG_NAME}" --zone="${NEG_ZONE}" --project="${PROJECT_ID}" --quiet || true
+              done
+              terraform destroy -auto-approve \
+                -var="project_id=${PROJECT_ID}" \
+                -var="region=${REGION}" \
+                -var="cluster_name=${CLUSTER_NAME}"
+            }
