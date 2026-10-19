@@ -2,6 +2,19 @@
 
 This repository implements an end-to-end **Multi-Tenant TM Forum Open Digital Architecture (ODA) Canvas** Proof of Concept (PoC) on **Google Cloud Platform (GCP)** (`gcp-oda-canvas-poc` in `us-central1`) using a **GKE Standard Private Cluster** and **GCP-Native Services**, fully automated via **GitHub Actions** (`https://github.com/wipro-gcp-ashu/oda-canvas-poc`).
 
+> 📄 **Full PoC Showcase, Technical Validation Report & Customer Business Case:**
+> See [**`ODA_Canvas_GCP_PoC_Showcase_and_Business_Case.md`**](./ODA_Canvas_GCP_PoC_Showcase_and_Business_Case.md) for the complete 12-section executive & engineering report, including architecture deep dive, verified live GCP execution logs, multi-tier customer TCO/ROI sizing models (5 OpCos, 10 B2B Partners, 25 MVNOs), 10-slide presentation deck outline, and 15-minute live client demo runbook.
+
+---
+
+## Live PoC Validation Status (`100% Verified`)
+
+| GitHub Actions Workflow | Target / Scope | Status | Key Verified Outcome |
+|---|---|---|---|
+| **`01-infra-terraform.yml`** | GCP Project `gcp-oda-canvas-poc` (`us-central1`) | **SUCCEEDED** | 11 GCP resources provisioned: Custom VPC, Cloud NAT, Cloud Armor WAF, Private GKE Cluster (`oda-canvas-mt-gke` with Dataplane V2), `canvas-system-pool`, `oda-tenants-pool`, Artifact Registry, Workload Identity & regional Secret Manager secrets |
+| **`02-deploy-oda-canvas.yml`** | ODA Canvas Control Plane + `tenant-alpha` & `tenant-beta` | **SUCCEEDED** | Istio (`34.46.180.73`), GCP Native L7 Gateway (`34.117.133.45`), Cert-Manager, ODA Canvas (`18/18` pods Running), `TMFC001` (`In-Progress-CompCon`), and automated Cilium eBPF isolation tests passed |
+| **`03-onboard-tenant.yml`** | Day-2 Self-Service Onboarding (`tenant-gamma`) | **SUCCEEDED (`1m 41s`)** | Zero-touch onboarding of 3rd isolated tenant (`tenant-gamma`) with dedicated GCP SA, regional Secret Manager secret, `TMFC001` instance, and verified cross-tenant block |
+
 ---
 
 ## Architecture Overview
@@ -84,11 +97,12 @@ flowchart TB
 │       ├── 01-namespace-and-quotas.yaml          # Namespace, ResourceQuota, LimitRange, RBAC, WI SA
 │       ├── 02-network-policies.yaml              # Cilium eBPF NetworkPolicies isolating tenants
 │       └── 03-sample-tmfc001-productcatalog.yaml # TMFC001 Component CRD, TMF620 API & HTTPRoute
-└── terraform/
-    ├── main.tf                     # VPC, NAT, Private GKE Standard, Node Pools, Cloud Armor, IAM
-    ├── variables.tf                # Default project (gcp-oda-canvas-poc), region (us-central1), CIDRs
-    ├── outputs.tf                  # Cluster, Artifact Registry, Cloud Armor & Tenant SA outputs
-    └── versions.tf                 # Google & Google-Beta providers
+├── terraform/
+│   ├── main.tf                     # VPC, NAT, Private GKE Standard, Node Pools, Cloud Armor, IAM
+│   ├── variables.tf                # Default project (gcp-oda-canvas-poc), region (us-central1), CIDRs
+│   ├── outputs.tf                  # Cluster, Artifact Registry, Cloud Armor & Tenant SA outputs
+│   └── versions.tf                 # Google & Google-Beta providers
+└── ODA_Canvas_GCP_PoC_Showcase_and_Business_Case.md # Full PoC Showcase, Validation Report & Business Case
 ```
 
 ---
