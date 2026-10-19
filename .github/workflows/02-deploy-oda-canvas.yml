@@ -93,6 +93,11 @@ jobs:
 
       - name: Install TM Forum ODA Canvas Control Plane
         run: |
+          echo "=== Pre-check: Current Pods in canvas and cert-manager namespaces ==="
+          kubectl get pods -n canvas -o wide || true
+          kubectl get pods -n cert-manager -o wide || true
+          kubectl get events -n canvas --sort-by='.lastTimestamp' | tail -n 20 || true
+
           # Clean up standalone cert-manager release/CRDs if present from previous run
           if helm status cert-manager -n cert-manager >/dev/null 2>&1; then
             echo "Removing standalone cert-manager so canvas-oda can manage cert-manager..."
@@ -112,6 +117,7 @@ jobs:
             kubectl delete job pre-install-check-istio -n default --ignore-not-found=true || true
             kubectl delete pvc --all -n canvas --ignore-not-found=true || true
             kubectl delete lease cert-manager-cainjector-leader-election -n kube-system --ignore-not-found=true || true
+            sleep 10
           fi
 
           helm repo add oda-canvas https://tmforum-oda.github.io/oda-canvas
@@ -122,10 +128,19 @@ jobs:
           kubectl create namespace canvas --dry-run=client -o yaml | kubectl apply -f -
           kubectl create namespace components --dry-run=client -o yaml | kubectl apply -f -
 
+          # IMPORTANT: Do NOT pass --wait here.
+          # canvas-oda uses Helm post-install hooks (cert-manager-init) to issue the webhook TLS
+          # certificates that Canvas operators wait for. Passing --wait deadlocks Helm before post-install hooks run.
           helm upgrade --install canvas oda-canvas/canvas-oda \
             -n canvas \
             -f oda-canvas/canvas-values.yaml \
-            --wait --timeout 15m
+            --timeout 10m
+
+          echo "Waiting for ODA Canvas control plane deployments to become available..."
+          kubectl wait --for=condition=Available deployment --all -n cert-manager --timeout=180s || true
+          kubectl wait --for=condition=Available deployment --all -n canvas --timeout=300s || true
+          kubectl get pods -n cert-manager
+          kubectl get pods -n canvas
 
       - name: Configure GCP Native Gateway API & Managed Prometheus Monitoring
         run: |
@@ -142,7 +157,8 @@ jobs:
             export GCP_PROJECT_ID="${GCP_PROJECT_ID}"
             envsubst < tenants/tenant-template/01-namespace-and-quotas.yaml | kubectl apply -f -
             envsubst < tenants/tenant-template/02-network-policies.yaml | kubectl apply -f -
-            envsubst < tenants/tenant-template/03-sample-tmfc001-productcatalog.yaml | kubectl apply -f -
+            envsubst < tenants/tenant-template/03-sample-tmfc001-productcatalog.yaml | kubectl apply -f - || \
+              (echo "Component webhook still warming up, retrying in 15s..." && sleep 15 && envsubst < tenants/tenant-template/03-sample-tmfc001-productcatalog.yaml | kubectl apply -f -)
           done
 
           echo "Waiting for Tenant TMFC001 Product Catalog pods to become ready..."
