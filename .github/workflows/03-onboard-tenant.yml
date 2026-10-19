@@ -1,0 +1,101 @@
+name: "03 - Self-Service Onboard New ODA Canvas Tenant"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tenant_name:
+        description: "New Tenant Namespace ID (e.g., tenant-gamma)"
+        required: true
+        default: "tenant-gamma"
+        type: string
+      peer_tenant_for_isolation_test:
+        description: "Existing Tenant Namespace to test cross-tenant network blocking against"
+        required: true
+        default: "tenant-alpha"
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'gcp-oda-canvas-poc' }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  GKE_CLUSTER_NAME: ${{ vars.GKE_CLUSTER_NAME || 'oda-canvas-mt-gke' }}
+  TENANT_NAME: ${{ inputs.tenant_name }}
+
+jobs:
+  onboard-tenant:
+    name: "Onboard Tenant: ${{ inputs.tenant_name }}"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK & GKE Auth Plugin
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Authorize GitHub Runner IP on Private GKE Control Plane
+        run: |
+          RUNNER_IP=$(curl -s https://ifconfig.me)
+          gcloud container clusters update "${GKE_CLUSTER_NAME}" \
+            --region="${GCP_REGION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --enable-master-authorized-networks \
+            --master-authorized-networks="${RUNNER_IP}/32"
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
+          location: ${{ env.GCP_REGION }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Provision GCP Workload Identity SA & Secret Manager Secret for Tenant
+        run: |
+          SA_NAME="oda-${TENANT_NAME}-sa"
+          SA_EMAIL="${SA_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+
+          if ! gcloud iam service-accounts describe "${SA_EMAIL}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud iam service-accounts create "${SA_NAME}" \
+              --display-name="Workload Identity SA for ODA Tenant ${TENANT_NAME}" \
+              --project="${GCP_PROJECT_ID}"
+          fi
+
+          gcloud iam service-accounts add-iam-policy-binding "${SA_EMAIL}" \
+            --project="${GCP_PROJECT_ID}" \
+            --role="roles/iam.workloadIdentityUser" \
+            --member="serviceAccount:${GCP_PROJECT_ID}.svc.id.goog[${TENANT_NAME}/oda-tenant-sa]"
+
+          SECRET_ID="oda-${TENANT_NAME}-db-credentials"
+          if ! gcloud secrets describe "${SECRET_ID}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
+            gcloud secrets create "${SECRET_ID}" --replication-policy="automatic" --project="${GCP_PROJECT_ID}"
+            echo "{\"tenant_id\":\"${TENANT_NAME}\"}" | gcloud secrets versions add "${SECRET_ID}" --data-file=- --project="${GCP_PROJECT_ID}"
+          fi
+
+          gcloud secrets add-iam-policy-binding "${SECRET_ID}" \
+            --project="${GCP_PROJECT_ID}" \
+            --role="roles/secretmanager.secretAccessor" \
+            --member="serviceAccount:${SA_EMAIL}"
+
+      - name: Apply Tenant K8s Namespace, Quotas, NetworkPolicies & TMFC001 Component
+        run: |
+          envsubst < tenants/tenant-template/01-namespace-and-quotas.yaml | kubectl apply -f -
+          envsubst < tenants/tenant-template/02-network-policies.yaml | kubectl apply -f -
+          envsubst < tenants/tenant-template/03-sample-tmfc001-productcatalog.yaml | kubectl apply -f -
+
+          kubectl rollout status "deployment/prodcat-${TENANT_NAME}" -n "${TENANT_NAME}" --timeout=120s
+
+      - name: Verify Cross-Tenant Isolation for New Tenant
+        run: |
+          chmod +x scripts/verify-multitenancy.sh
+          ./scripts/verify-multitenancy.sh "${TENANT_NAME}" "${{ inputs.peer_tenant_for_isolation_test }}"

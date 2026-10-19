@@ -1,0 +1,61 @@
+name: "99 - Destroy ODA Canvas PoC Infrastructure"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: "Type DESTROY to confirm tearing down the GKE cluster and GCP resources"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'gcp-oda-canvas-poc' }}
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  CLUSTER_NAME: ${{ vars.GKE_CLUSTER_NAME || 'oda-canvas-mt-gke' }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET || 'gcp-oda-canvas-poc-tfstate' }}
+
+jobs:
+  destroy:
+    name: "Terraform Destroy GCP PoC"
+    if: ${{ github.event.inputs.confirm_destroy == 'DESTROY' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+
+      - name: Initialize & Destroy
+        run: |
+          if [[ -n "${TF_STATE_BUCKET}" ]]; then
+            cat <<EOF > backend.tf
+          terraform {
+            backend "gcs" {
+              bucket = "${TF_STATE_BUCKET}"
+              prefix = "oda-canvas-multitenant-poc/infra"
+            }
+          }
+          EOF
+          fi
+          terraform init
+          terraform destroy -auto-approve \
+            -var="project_id=${PROJECT_ID}" \
+            -var="region=${REGION}" \
+            -var="cluster_name=${CLUSTER_NAME}"

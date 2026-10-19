@@ -1,0 +1,134 @@
+name: "02 - Deploy TM Forum ODA Canvas & GCP Native Integrations"
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_initial_tenants:
+        description: "Automatically onboard initial tenants (tenant-alpha & tenant-beta) after Canvas install"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID || 'gcp-oda-canvas-poc' }}
+  GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  GKE_CLUSTER_NAME: ${{ vars.GKE_CLUSTER_NAME || 'oda-canvas-mt-gke' }}
+
+jobs:
+  deploy-oda-canvas:
+    name: "Install Istio, Cert-Manager, ODA Canvas & GCP Observability"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK & GKE Auth Plugin
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: "gke-gcloud-auth-plugin"
+
+      - name: Authorize GitHub Runner IP on Private GKE Control Plane
+        run: |
+          RUNNER_IP=$(curl -s https://ifconfig.me)
+          echo "Authorizing GitHub Runner IP: ${RUNNER_IP}/32"
+          gcloud container clusters update "${GKE_CLUSTER_NAME}" \
+            --region="${GCP_REGION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --enable-master-authorized-networks \
+            --master-authorized-networks="${RUNNER_IP}/32"
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER_NAME }}
+          location: ${{ env.GCP_REGION }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.2"
+
+      - name: Install Cert-Manager (Prerequisite for ODA Canvas Webhook Certificates)
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo update
+          helm upgrade --install cert-manager jetstack/cert-manager \
+            --namespace cert-manager \
+            --create-namespace \
+            --set crds.enabled=true \
+            --set nodeSelector."oda\.tmforum\.org/pool-type"=canvas-system \
+            --wait --timeout 5m
+
+      - name: Install Istio Service Mesh & Cloud Armor Integrated Ingress
+        run: |
+          helm repo add istio https://istio-release.storage.googleapis.com/charts
+          helm repo update
+
+          kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f oda-canvas/gcp-native-gateway-and-observability.yaml || true
+
+          helm upgrade --install istio-base istio/base \
+            -n istio-system --wait
+
+          helm upgrade --install istiod istio/istiod \
+            -n istio-system \
+            --set pilot.nodeSelector."oda\.tmforum\.org/pool-type"=canvas-system \
+            --wait --timeout 5m
+
+          helm upgrade --install istio-ingress istio/gateway \
+            -n istio-system \
+            -f oda-canvas/istio-values.yaml \
+            --wait --timeout 5m
+
+      - name: Install TM Forum ODA Canvas Control Plane
+        run: |
+          helm repo add oda-canvas https://tmforum-oda.github.io/oda-canvas
+          helm repo update
+
+          kubectl create namespace canvas --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace components --dry-run=client -o yaml | kubectl apply -f -
+
+          helm upgrade --install canvas oda-canvas/canvas-oda \
+            -n canvas \
+            -f oda-canvas/canvas-values.yaml \
+            --wait --timeout 10m
+
+      - name: Configure GCP Native Gateway API & Managed Prometheus Monitoring
+        run: |
+          kubectl apply -f oda-canvas/gcp-native-gateway-and-observability.yaml
+          kubectl get pods -n canvas
+          kubectl get gateway -n canvas
+
+      - name: Onboard Initial Tenants (tenant-alpha & tenant-beta)
+        if: ${{ inputs.deploy_initial_tenants == true }}
+        run: |
+          for TENANT in tenant-alpha tenant-beta; do
+            echo "Deploying Multi-Tenant Isolation & Sample TMFC001 for ${TENANT}..."
+            export TENANT_NAME="${TENANT}"
+            export GCP_PROJECT_ID="${GCP_PROJECT_ID}"
+            envsubst < tenants/tenant-template/01-namespace-and-quotas.yaml | kubectl apply -f -
+            envsubst < tenants/tenant-template/02-network-policies.yaml | kubectl apply -f -
+            envsubst < tenants/tenant-template/03-sample-tmfc001-productcatalog.yaml | kubectl apply -f -
+          done
+
+          echo "Waiting for Tenant TMFC001 Product Catalog pods to become ready..."
+          kubectl rollout status deployment/prodcat-tenant-alpha -n tenant-alpha --timeout=120s
+          kubectl rollout status deployment/prodcat-tenant-beta -n tenant-beta --timeout=120s
+
+      - name: Run Multi-Tenancy Isolation Verification Suite
+        if: ${{ inputs.deploy_initial_tenants == true }}
+        run: |
+          chmod +x scripts/verify-multitenancy.sh
+          ./scripts/verify-multitenancy.sh tenant-alpha tenant-beta
