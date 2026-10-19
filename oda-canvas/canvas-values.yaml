@@ -28,6 +28,6 @@ keycloak:
         enabled: true
         storageClass: "standard-rwo" # GKE Persistent Disk CSI driver
 
-# Cert-Manager dependency (installed separately in workflow before canvas-oda)
+# Bundled cert-manager configuration inside canvas-oda
 cert-manager:
-  enabled: false
+  leaseWaitTimeonStartup: 90
