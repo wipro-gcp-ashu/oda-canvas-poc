@@ -1,6 +1,8 @@
-# Helm values for Istio Ingress Gateway on GKE Private Cluster
-# Pinning to the ODA Canvas System Node Pool & integrating with GCP Cloud Load Balancing
 replicaCount: 2
+
+labels:
+  app: istio-ingress
+  istio: ingressgateway
 
 nodeSelector:
   oda.tmforum.org/pool-type: canvas-system

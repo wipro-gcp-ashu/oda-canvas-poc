@@ -4,7 +4,7 @@ apiVersion: cloud.google.com/v1
 kind: BackendConfig
 metadata:
   name: oda-canvas-armor-backendconfig
-  namespace: istio-system
+  namespace: istio-ingress
 spec:
   securityPolicy:
     name: "oda-canvas-cloud-armor-waf"
