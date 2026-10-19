@@ -328,7 +328,11 @@ resource "google_secret_manager_secret" "tenant_secret" {
   secret_id = "oda-${each.value}-db-credentials"
 
   replication {
-    auto {}
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
 
   labels = {
