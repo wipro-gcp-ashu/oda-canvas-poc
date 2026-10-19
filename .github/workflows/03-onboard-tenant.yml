@@ -78,7 +78,7 @@ jobs:
 
           SECRET_ID="oda-${TENANT_NAME}-db-credentials"
           if ! gcloud secrets describe "${SECRET_ID}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1; then
-            gcloud secrets create "${SECRET_ID}" --replication-policy="automatic" --project="${GCP_PROJECT_ID}"
+            gcloud secrets create "${SECRET_ID}" --replication-policy="user-managed" --locations="${GCP_REGION}" --project="${GCP_PROJECT_ID}"
             echo "{\"tenant_id\":\"${TENANT_NAME}\"}" | gcloud secrets versions add "${SECRET_ID}" --data-file=- --project="${GCP_PROJECT_ID}"
           fi
 
