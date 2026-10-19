@@ -60,17 +60,6 @@ jobs:
         with:
           version: "v3.15.2"
 
-      - name: Install Cert-Manager (Prerequisite for ODA Canvas Webhook Certificates)
-        run: |
-          helm repo add jetstack https://charts.jetstack.io
-          helm repo update
-          helm upgrade --install cert-manager jetstack/cert-manager \
-            --namespace cert-manager \
-            --create-namespace \
-            --set crds.enabled=true \
-            --set nodeSelector."oda\.tmforum\.org/pool-type"=canvas-system \
-            --wait --timeout 5m
-
       - name: Install Istio Service Mesh & Cloud Armor Integrated Ingress
         run: |
           helm repo add istio https://istio-release.storage.googleapis.com/charts
@@ -94,7 +83,18 @@ jobs:
 
       - name: Install TM Forum ODA Canvas Control Plane
         run: |
+          # Clean up standalone cert-manager release/CRDs if present from previous run
+          # because oda-canvas/canvas-oda bundles and manages its own cert-manager subchart
+          if helm status cert-manager -n cert-manager >/dev/null 2>&1; then
+            echo "Removing standalone cert-manager so canvas-oda can manage cert-manager..."
+            helm uninstall cert-manager -n cert-manager --wait || true
+            kubectl get crd -o name | grep 'cert-manager.io' | xargs -r kubectl delete || true
+            kubectl delete lease cert-manager-cainjector-leader-election -n kube-system --ignore-not-found=true || true
+          fi
+
           helm repo add oda-canvas https://tmforum-oda.github.io/oda-canvas
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo add bitnami https://charts.bitnami.com/bitnami
           helm repo update
 
           kubectl create namespace canvas --dry-run=client -o yaml | kubectl apply -f -
@@ -103,7 +103,7 @@ jobs:
           helm upgrade --install canvas oda-canvas/canvas-oda \
             -n canvas \
             -f oda-canvas/canvas-values.yaml \
-            --wait --timeout 10m
+            --wait --timeout 12m
 
       - name: Configure GCP Native Gateway API & Managed Prometheus Monitoring
         run: |
