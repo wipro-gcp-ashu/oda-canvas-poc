@@ -85,7 +85,7 @@ spec:
     exposedAPIs:
       - name: productcatalogmanagement
         specification:
-          - url: "https://raw.githubusercontent.com/tmforum-apis/TMF620_ProductCatalog/master/TMF620-ProductCatalog-v4.0.0.swagger.json"
+          - "https://raw.githubusercontent.com/tmforum-apis/TMF620_ProductCatalog/master/TMF620-ProductCatalog-v4.0.0.swagger.json"
         implementation: prodcat-${TENANT_NAME}-svc
         apiType: openapi
         path: /${TENANT_NAME}/tmf-api/productCatalogManagement/v4/catalog
