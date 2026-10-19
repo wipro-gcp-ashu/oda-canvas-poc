@@ -1,0 +1,119 @@
+---
+# 1. Sample TMF620 Product Catalog API Microservice for Tenant: ${TENANT_NAME}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prodcat-${TENANT_NAME}
+  namespace: ${TENANT_NAME}
+  labels:
+    oda.tmforum.org/componentName: ${TENANT_NAME}-tmfc001-productcatalog
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+    app: prodcat-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prodcat-api
+      oda.tmforum.org/tenant: ${TENANT_NAME}
+  template:
+    metadata:
+      labels:
+        app: prodcat-api
+        oda.tmforum.org/componentName: ${TENANT_NAME}-tmfc001-productcatalog
+        oda.tmforum.org/tenant: ${TENANT_NAME}
+    spec:
+      serviceAccountName: oda-tenant-sa
+      nodeSelector:
+        oda.tmforum.org/pool-type: tenant-workloads
+      containers:
+        - name: tmf620-api
+          image: hashicorp/http-echo:1.0.0
+          args:
+            - "-listen=:8080"
+            - >-
+              -text={"tmfSpec":"TMF620_Product_Catalog_v4.1.0","odaComponentId":"TMFC001","tenant":"${TENANT_NAME}","status":"Active","catalogs":[{"id":"cat-${TENANT_NAME}-001","name":"${TENANT_NAME} Enterprise 5G Catalog"}]}
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prodcat-${TENANT_NAME}-svc
+  namespace: ${TENANT_NAME}
+  labels:
+    oda.tmforum.org/componentName: ${TENANT_NAME}-tmfc001-productcatalog
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+spec:
+  selector:
+    app: prodcat-api
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# 2. TM Forum ODA Component Custom Resource (oda.tmforum.org/v1beta3)
+# Watched by the ODA Canvas Component Operator & API Operator
+apiVersion: oda.tmforum.org/v1beta3
+kind: Component
+metadata:
+  name: ${TENANT_NAME}-tmfc001-productcatalog
+  namespace: ${TENANT_NAME}
+  labels:
+    oda.tmforum.org/componentName: ${TENANT_NAME}-tmfc001-productcatalog
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+spec:
+  id: TMFC001
+  name: ProductCatalogManagement
+  version: "1.0.0"
+  description: "Multi-Tenant TMFC001 Product Catalog Management Component for ${TENANT_NAME}"
+  functionalBlock: CoreCommerce
+  publicationDate: "2026-10-19T00:00:00Z"
+  status: specified
+  maintainers:
+    - name: "Wipro GCP ODA Practice"
+      email: "oda-canvas-poc@wipro.com"
+  coreFunction:
+    exposedAPIs:
+      - name: productcatalogmanagement
+        specification:
+          - url: "https://raw.githubusercontent.com/tmforum-apis/TMF620_ProductCatalog/master/TMF620-ProductCatalog-v4.0.0.swagger.json"
+        implementation: prodcat-${TENANT_NAME}-svc
+        apiType: openapi
+        path: /${TENANT_NAME}/tmf-api/productCatalogManagement/v4/catalog
+        port: 8080
+    dependentAPIs: []
+  managementFunction:
+    exposedAPIs: []
+  securityFunction:
+    canvasSystemRole: "${TENANT_NAME}-CatalogAdmin"
+    exposedAPIs: []
+---
+# 3. GCP Native GKE Gateway API HTTPRoute for Tenant ${TENANT_NAME}
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: ${TENANT_NAME}-tmfc001-route
+  namespace: ${TENANT_NAME}
+  labels:
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+spec:
+  parentRefs:
+    - name: oda-gcp-native-gateway
+      namespace: canvas
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /${TENANT_NAME}/tmf-api/productCatalogManagement/v4
+      backendRefs:
+        - name: prodcat-${TENANT_NAME}-svc
+          port: 8080

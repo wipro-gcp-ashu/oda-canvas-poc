@@ -1,0 +1,66 @@
+---
+# 1. GKE BackendConfig attaching GCP Cloud Armor WAF to ODA Canvas Ingress
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: oda-canvas-armor-backendconfig
+  namespace: istio-system
+spec:
+  securityPolicy:
+    name: "oda-canvas-cloud-armor-waf"
+  healthCheck:
+    checkIntervalSec: 15
+    timeoutSec: 5
+    healthyThreshold: 1
+    unhealthyThreshold: 3
+    type: HTTP
+    requestPath: /healthz/ready
+    port: 15021
+---
+# 2. GCP Native Gateway API (GKE Enterprise / Standard L7 Global External Managed Load Balancer)
+# Enables native path/header-based routing to tenant namespaces (/tenant-alpha/*, /tenant-beta/*)
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: Gateway
+metadata:
+  name: oda-gcp-native-gateway
+  namespace: canvas
+  labels:
+    oda.tmforum.org/gateway-type: gcp-native-l7
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              oda.tmforum.org/tenant-enabled: "true"
+---
+# 3. Google Cloud Managed Service for Prometheus (GMP) - ClusterPodMonitoring
+# Scrapes Prometheus metrics from ODA Canvas Operators & Tenant ODA Components into Cloud Monitoring
+apiVersion: monitoring.googleapis.com/v1
+kind: ClusterPodMonitoring
+metadata:
+  name: oda-canvas-and-tenants-metrics
+spec:
+  selector:
+    matchExpressions:
+      - key: oda.tmforum.org/componentName
+        operator: Exists
+  endpoints:
+    - port: 8080
+      interval: 30s
+      path: /metrics
+  targetLabels:
+    metadata:
+      - pod
+      - namespace
+      - container
+    fromPod:
+      - from: oda.tmforum.org/componentName
+        to: oda_component
+      - from: oda.tmforum.org/tenant
+        to: oda_tenant

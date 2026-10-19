@@ -1,0 +1,33 @@
+# Helm values for TM Forum ODA Canvas (chart: oda-canvas/canvas-oda)
+# Configured for Multi-Tenant Namespace Watching & GCP GKE Standard Private Cluster
+
+global:
+  nodeSelector:
+    oda.tmforum.org/pool-type: canvas-system
+
+# Configure the ODA Controller/Component Operator to watch all Tenant Namespaces
+controller:
+  enabled: true
+  monitoredNamespaces: "components,tenant-alpha,tenant-beta"
+  ingressClass:
+    enabled: false
+  istioGateway: true
+  nodeSelector:
+    oda.tmforum.org/pool-type: canvas-system
+
+# Identity Config Operator (SECOOP) & Keycloak for Multi-Tenant OIDC/IAM
+# Can also integrate with Google Cloud Identity Platform (OIDC)
+keycloak:
+  enabled: true
+  auth:
+    adminUser: admin
+  postgresql:
+    enabled: true
+    primary:
+      persistence:
+        enabled: true
+        storageClass: "standard-rwo" # GKE Persistent Disk CSI driver
+
+# Cert-Manager dependency (installed separately in workflow before canvas-oda)
+cert-manager:
+  enabled: false

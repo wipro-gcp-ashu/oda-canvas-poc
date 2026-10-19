@@ -1,0 +1,76 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TENANT_NAME}
+  labels:
+    oda.tmforum.org/tenant: ${TENANT_NAME}
+    oda.tmforum.org/tenant-enabled: "true"
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: ${TENANT_NAME}-quota
+  namespace: ${TENANT_NAME}
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "30"
+    services: "15"
+    persistentvolumeclaims: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: ${TENANT_NAME}-limits
+  namespace: ${TENANT_NAME}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+---
+# GCP Workload Identity bound ServiceAccount for Tenant ${TENANT_NAME}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: oda-tenant-sa
+  namespace: ${TENANT_NAME}
+  annotations:
+    iam.gke.io/gcp-service-account: oda-${TENANT_NAME}-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com
+---
+# Tenant-scoped RBAC Role allowing management of TM Forum ODA CRDs & K8s workloads only in ${TENANT_NAME}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: oda-tenant-admin-role
+  namespace: ${TENANT_NAME}
+rules:
+  - apiGroups: ["oda.tmforum.org"]
+    resources: ["components", "exposedapis", "dependentapis", "secretsmanagement"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["", "apps", "batch"]
+    resources: ["pods", "services", "deployments", "statefulsets", "configmaps", "secrets", "jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: oda-tenant-admin-binding
+  namespace: ${TENANT_NAME}
+subjects:
+  - kind: ServiceAccount
+    name: oda-tenant-sa
+    namespace: ${TENANT_NAME}
+roleRef:
+  kind: Role
+  name: oda-tenant-admin-role
+  apiGroup: rbac.authorization.k8s.io

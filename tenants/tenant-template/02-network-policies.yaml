@@ -1,0 +1,51 @@
+---
+# 1. Default Deny All Ingress into ${TENANT_NAME} Namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ${TENANT_NAME}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# 2. Allow Pods within the SAME Tenant Namespace (${TENANT_NAME}) to communicate freely
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-same-tenant-internal
+  namespace: ${TENANT_NAME}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+---
+# 3. Allow Ingress ONLY from ODA Canvas Control Plane (canvas), Istio Ingress (istio-system),
+#    and Google Cloud Load Balancer Health Checks (blocks all other tenant namespaces!)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-oda-canvas-and-gcp-ingress
+  namespace: ${TENANT_NAME}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: canvas
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-system
+        - ipBlock:
+            cidr: 35.191.0.0/16
+        - ipBlock:
+            cidr: 130.211.0.0/22
+        - ipBlock:
+            cidr: 34.96.0.0/20

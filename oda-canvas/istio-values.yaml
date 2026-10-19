@@ -1,0 +1,20 @@
+# Helm values for Istio Ingress Gateway on GKE Private Cluster
+# Pinning to the ODA Canvas System Node Pool & integrating with GCP Cloud Load Balancing
+replicaCount: 2
+
+nodeSelector:
+  oda.tmforum.org/pool-type: canvas-system
+
+service:
+  type: LoadBalancer
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "oda-canvas-armor-backendconfig"}'
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
