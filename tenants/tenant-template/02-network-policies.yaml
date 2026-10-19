@@ -43,6 +43,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: istio-system
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: istio-ingress
         - ipBlock:
             cidr: 35.191.0.0/16
         - ipBlock:
