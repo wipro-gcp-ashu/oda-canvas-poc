@@ -101,12 +101,18 @@ jobs:
             kubectl delete lease cert-manager-cainjector-leader-election -n kube-system --ignore-not-found=true || true
           fi
 
-          # Clean up any failed canvas release or pre-install hook jobs from prior attempt
-          if helm status canvas -n canvas >/dev/null 2>&1; then
-            helm uninstall canvas -n canvas --wait || true
+          # Clean up any failed/stuck canvas release using --no-hooks so pre-delete hooks don't hang
+          RELEASE_STATUS=$(helm status canvas -n canvas -o json 2>/dev/null | jq -r '.info.status' || echo "not_found")
+          echo "Current canvas release status: ${RELEASE_STATUS}"
+          if [[ "${RELEASE_STATUS}" != "deployed" && "${RELEASE_STATUS}" != "not_found" ]]; then
+            echo "Removing failed canvas release (--no-hooks)..."
+            helm uninstall canvas -n canvas --no-hooks || true
+            kubectl delete secret -n canvas -l owner=helm,name=canvas --ignore-not-found=true || true
+            kubectl delete job --all -n canvas --ignore-not-found=true || true
+            kubectl delete job pre-install-check-istio -n default --ignore-not-found=true || true
+            kubectl delete pvc --all -n canvas --ignore-not-found=true || true
+            kubectl delete lease cert-manager-cainjector-leader-election -n kube-system --ignore-not-found=true || true
           fi
-          kubectl delete job pre-install-check-istio -n canvas --ignore-not-found=true || true
-          kubectl delete job pre-install-check-istio -n default --ignore-not-found=true || true
 
           helm repo add oda-canvas https://tmforum-oda.github.io/oda-canvas
           helm repo add jetstack https://charts.jetstack.io
@@ -119,7 +125,7 @@ jobs:
           helm upgrade --install canvas oda-canvas/canvas-oda \
             -n canvas \
             -f oda-canvas/canvas-values.yaml \
-            --wait --timeout 12m
+            --wait --timeout 15m
 
       - name: Configure GCP Native Gateway API & Managed Prometheus Monitoring
         run: |
