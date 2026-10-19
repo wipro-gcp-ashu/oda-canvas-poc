@@ -1,33 +1,36 @@
-# Helm values for TM Forum ODA Canvas (chart: oda-canvas/canvas-oda)
-# Configured for Multi-Tenant Namespace Watching & GCP GKE Standard Private Cluster
+# Official Helm values for TM Forum ODA Canvas (chart: oda-canvas/canvas-oda)
+# Aligned with https://github.com/tmforum-oda/oda-canvas/blob/main/charts/canvas-oda/values.yaml
 
-global:
-  nodeSelector:
-    oda.tmforum.org/pool-type: canvas-system
+preqrequisitechecks:
+  istio: true
 
-# Configure the ODA Controller/Component Operator to watch all Tenant Namespaces
-controller:
+istioCert:
+  namespace: "istio-ingress"
+
+oda-crds:
   enabled: true
-  monitoredNamespaces: "components,tenant-alpha,tenant-beta"
-  ingressClass:
-    enabled: false
-  istioGateway: true
-  nodeSelector:
-    oda.tmforum.org/pool-type: canvas-system
+
+canvas-namespaces:
+  enabled: true
+  certManagerNamespace: cert-manager
+  componentNamespace: components
+
+cert-manager-init:
+  leaseWaitTimeonStartup: 90
+  cert-manager:
+    enabled: true
+    installCRDs: true
+    namespace: cert-manager
+
+# Configure the TM Forum ODA Component Operator to watch all Tenant Namespaces
+component-operator:
+  deployment:
+    istioGateway: true
+    monitoredNamespaces: "components,tenant-alpha,tenant-beta,tenant-*"
+    httpsRedirect: false
 
 # Identity Config Operator (SECOOP) & Keycloak for Multi-Tenant OIDC/IAM
-# Can also integrate with Google Cloud Identity Platform (OIDC)
 keycloak:
   enabled: true
-  auth:
-    adminUser: admin
   postgresql:
     enabled: true
-    primary:
-      persistence:
-        enabled: true
-        storageClass: "standard-rwo" # GKE Persistent Disk CSI driver
-
-# Bundled cert-manager configuration inside canvas-oda
-cert-manager:
-  leaseWaitTimeonStartup: 90
