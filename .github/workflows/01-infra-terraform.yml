@@ -11,11 +11,6 @@ on:
         options:
           - plan
           - apply
-  push:
-    branches:
-      - main
-    paths:
-      - "terraform/**"
 
 permissions:
   contents: read
@@ -80,6 +75,6 @@ jobs:
             -out=tfplan
 
       - name: Terraform Apply
-        if: ${{ github.event.inputs.action == 'apply' || github.event_name == 'push' }}
+        if: ${{ inputs.action == 'apply' }}
         run: |
           terraform apply -auto-approve tfplan
