@@ -65,7 +65,14 @@ jobs:
           helm repo add istio https://istio-release.storage.googleapis.com/charts
           helm repo update
 
+          # Clean up old istio-ingress if previously installed in istio-system
+          if helm status istio-ingress -n istio-system >/dev/null 2>&1; then
+            helm uninstall istio-ingress -n istio-system --wait || true
+          fi
+
           kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create namespace istio-ingress --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace istio-ingress istio-injection=enabled --overwrite
           kubectl apply -f oda-canvas/gcp-native-gateway-and-observability.yaml || true
 
           helm upgrade --install istio-base istio/base \
@@ -77,20 +84,29 @@ jobs:
             --wait --timeout 5m
 
           helm upgrade --install istio-ingress istio/gateway \
-            -n istio-system \
+            -n istio-ingress \
             -f oda-canvas/istio-values.yaml \
             --wait --timeout 5m
+
+          echo "Verifying istio-ingress service in istio-ingress namespace:"
+          kubectl get svc -n istio-ingress
 
       - name: Install TM Forum ODA Canvas Control Plane
         run: |
           # Clean up standalone cert-manager release/CRDs if present from previous run
-          # because oda-canvas/canvas-oda bundles and manages its own cert-manager subchart
           if helm status cert-manager -n cert-manager >/dev/null 2>&1; then
             echo "Removing standalone cert-manager so canvas-oda can manage cert-manager..."
             helm uninstall cert-manager -n cert-manager --wait || true
             kubectl get crd -o name | grep 'cert-manager.io' | xargs -r kubectl delete || true
             kubectl delete lease cert-manager-cainjector-leader-election -n kube-system --ignore-not-found=true || true
           fi
+
+          # Clean up any failed canvas release or pre-install hook jobs from prior attempt
+          if helm status canvas -n canvas >/dev/null 2>&1; then
+            helm uninstall canvas -n canvas --wait || true
+          fi
+          kubectl delete job pre-install-check-istio -n canvas --ignore-not-found=true || true
+          kubectl delete job pre-install-check-istio -n default --ignore-not-found=true || true
 
           helm repo add oda-canvas https://tmforum-oda.github.io/oda-canvas
           helm repo add jetstack https://charts.jetstack.io
