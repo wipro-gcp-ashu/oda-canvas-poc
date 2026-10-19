@@ -1,6 +1,6 @@
 # Multi-Tenant TM Forum ODA Canvas PoC on Google Cloud (GKE Private Cluster)
 
-This repository implements an end-to-end **Multi-Tenant TM Forum Open Digital Architecture (ODA) Canvas** Proof of Concept (PoC) on **Google Cloud Platform (GCP)** using **GKE Standard Private Cluster** and **GCP-Native Services**, fully automated via **GitHub Actions** (`https://github.com/wipro-gcp-ashu`).
+This repository implements an end-to-end **Multi-Tenant TM Forum Open Digital Architecture (ODA) Canvas** Proof of Concept (PoC) on **Google Cloud Platform (GCP)** (`gcp-oda-canvas-poc` in `us-central1`) using a **GKE Standard Private Cluster** and **GCP-Native Services**, fully automated via **GitHub Actions** (`https://github.com/wipro-gcp-ashu/oda-canvas-poc`).
 
 ---
 
@@ -8,11 +8,11 @@ This repository implements an end-to-end **Multi-Tenant TM Forum Open Digital Ar
 
 ```mermaid
 flowchart TB
-  subgraph GitHub["GitHub (github.com/wipro-gcp-ashu)"]
-    GHA["GitHub Actions Workflows<br/>(01-Infra, 02-Canvas, 03-Tenant)"]
+  subgraph GitHub["GitHub (github.com/wipro-gcp-ashu/oda-canvas-poc)"]
+    GHA["GitHub Actions Workflows (workflow_dispatch)<br/>(01-Infra, 02-Canvas, 03-Tenant, 99-Destroy)"]
   end
 
-  subgraph GCP["New GCP Project (VPC + Cloud NAT)"]
+  subgraph GCP["GCP Project: gcp-oda-canvas-poc (us-central1)"]
     WIF["GCP Workload Identity Federation<br/>(Keyless OIDC Auth)"]
     GAR["GCP Artifact Registry"]
     GSM["GCP Secret Manager<br/>(Per-Tenant Secrets)"]
@@ -86,10 +86,9 @@ flowchart TB
 │       └── 03-sample-tmfc001-productcatalog.yaml # TMFC001 Component CRD, TMF620 API & HTTPRoute
 └── terraform/
     ├── main.tf                     # VPC, NAT, Private GKE Standard, Node Pools, Cloud Armor, IAM
-    ├── variables.tf
-    ├── outputs.tf
-    ├── versions.tf
-    └── terraform.tfvars.example
+    ├── variables.tf                # Default project (gcp-oda-canvas-poc), region (us-central1), CIDRs
+    ├── outputs.tf                  # Cluster, Artifact Registry, Cloud Armor & Tenant SA outputs
+    └── versions.tf                 # Google & Google-Beta providers
 ```
 
 ---
